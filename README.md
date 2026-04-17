@@ -4,8 +4,10 @@
 - khi run file cua tui nen nho
   ```bash
   python -m venv [ten_env_m_muon dat]
-  cd path/den_file_activate (tuy vaof moitruong, tra gpt de bt them chi tiet)
+  path/den_file_activate (tuy vaof moitruong, tra gpt de bt them chi tiet)
   pip install opencv-python numpy mediapipe
+  cd ./code_run_duoc
+  python demo.py
   ```
   *good luck ae
   

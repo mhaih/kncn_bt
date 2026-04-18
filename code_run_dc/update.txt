@@ -1,0 +1,2 @@
+thêm ngáp, cuối gục đầu xuống(chưa tốt), quay đầu sang hướng khác(dễ bị lộn với gục đầu), vắng khỏi khung camera
+cảnh báo bằng tiếng pip, có 3 mức tăng dần để cảnh báo (máy thịnh pip 1 hồi nó đơ luôn dù set mức cao nhất là pip liên tục)

@@ -177,7 +177,7 @@ def play_alert(level: int):
     """
     Level 1 → 1 beep  900 Hz  400 ms  (mild warning)
     Level 2 → 3 beeps 1000 Hz 300 ms  (moderate)
-    Level 3 → 6 beeps 1200 Hz 200 ms  (urgent)
+    Level 3 → 6 beeps 1000 Hz 100 ms  (urgent)
     """
     if level == 1:
         _beep_once(900, 400)
@@ -186,7 +186,7 @@ def play_alert(level: int):
             _beep_once(1000, 300)
             time.sleep(0.08)
     else:
-        for _ in range(10):
+        for _ in range(6):
             _beep_once(1000, 100)
             time.sleep(0.001)
 

@@ -15,20 +15,9 @@ THRESHOLDS = {
     "EAR_THRESH":    0.25,   # EAR below this → eyes considered closed
     "EAR_WAIT_TIME": 2.0,    # Seconds eyes must stay closed before alarm
 
-    # ── Iris gaze (looking left/right/up/down via iris offset) ────────────────
-    "GAZE_OFF_LIMIT": 10.0,  # Seconds gaze is off-screen before alert
-    "GAZE_H_THRESH":  0.35,  # Normalised horizontal iris offset tolerance
-    "GAZE_V_THRESH":  0.35,  # Normalised vertical iris offset tolerance
-
     # ── Yawning (MAR) ─────────────────────────────────────────────────────────
     "MAR_THRESH":    0.60,   # MAR above this → mouth wide open
     "MAR_WAIT_TIME": 1.5,    # Seconds MAR must stay high to count as yawn
-
-    # ── Looking down (head pitch via nose-eye geometry) ────────────────────────
-    # ratio = (nose_y - eye_mid_y) / face_height
-    # Larger positive value = head pitched further downward
-    "LOOK_DOWN_THRESH":    0.18,  # Ratio above this → looking down
-    "LOOK_DOWN_WAIT_TIME": 6.0,   # Seconds before triggering distracted alert
 
     # ── Head turn (face asymmetry via nose-to-face-edge distances) ────────────
     # asymmetry = |left_dist - right_dist| / (left_dist + right_dist)
@@ -56,9 +45,6 @@ THRESHOLDS = {
 
 LEFT_EYE_IDX   = [362, 385, 387, 263, 373, 380]
 RIGHT_EYE_IDX  = [33,  160, 158, 133, 153, 144]
-LEFT_IRIS_IDX  = [474, 475, 476, 477]
-RIGHT_IRIS_IDX = [469, 470, 471, 472]
-
 MOUTH_IDX = {
     "upper": [82,  13, 312],
     "lower": [87,  14, 317],
@@ -132,93 +118,6 @@ def compute_mar(landmarks, mouth_idx, w, h):
         return vertical / horizontal if horizontal > 0 else 0.0
     except Exception:
         return 0.0
-
-
-# ── GAZE ──────────────────────────────────────────────────────────────────────
-
-def _iris_centre(landmarks, iris_idxs, w, h):
-    xs = [landmarks[i].x * w for i in iris_idxs]
-    ys = [landmarks[i].y * h for i in iris_idxs]
-    return np.array([np.mean(xs), np.mean(ys)])
-
-
-def _eye_centre(landmarks, eye_idxs, w, h):
-    xs = [landmarks[i].x * w for i in eye_idxs]
-    ys = [landmarks[i].y * h for i in eye_idxs]
-    return np.array([np.mean(xs), np.mean(ys)])
-
-
-def _eye_width(landmarks, eye_idxs, w, h):
-    xs = [landmarks[i].x * w for i in eye_idxs]
-    return max(xs) - min(xs)
-
-
-def compute_gaze(landmarks, w, h, h_thresh, v_thresh):
-    """
-    Iris-offset gaze estimation.
-
-    Offset = (iris_centre - eye_box_centre) / eye_width  (normalised)
-    If |offset_x| > h_thresh OR |offset_y| > v_thresh → looking away.
-
-    Returns (looking_at_screen: bool, debug_info: dict)
-    """
-    try:
-        l_iris  = _iris_centre(landmarks, LEFT_IRIS_IDX,  w, h)
-        r_iris  = _iris_centre(landmarks, RIGHT_IRIS_IDX, w, h)
-        l_eye   = _eye_centre (landmarks, LEFT_EYE_IDX,   w, h)
-        r_eye   = _eye_centre (landmarks, RIGHT_EYE_IDX,  w, h)
-        l_width = _eye_width  (landmarks, LEFT_EYE_IDX,   w, h) or 1
-        r_width = _eye_width  (landmarks, RIGHT_EYE_IDX,  w, h) or 1
-
-        mean_off = ((l_iris - l_eye) / l_width +
-                    (r_iris - r_eye) / r_width) / 2.0
-
-        looking = (abs(mean_off[0]) < h_thresh and
-                   abs(mean_off[1]) < v_thresh)
-        return looking, {"gaze_h": round(float(mean_off[0]), 3),
-                         "gaze_v": round(float(mean_off[1]), 3)}
-    except Exception:
-        return False, {"gaze_h": 0.0, "gaze_v": 0.0}
-
-
-# ── LOOKING DOWN ──────────────────────────────────────────────────────────────
-
-def detect_looking_down(landmarks, w, h, threshold):
-    """
-    Detect downward head pitch using nose-eye-chin geometry.
-
-    Logic
-    -----
-    Compute how far the nose tip sits below the midpoint between the two
-    eye centres, normalised by face height (forehead to chin):
-
-        ratio = (nose_y - eye_mid_y) / face_height
-
-    When sitting upright the nose is naturally below the eyes, giving a
-    small positive ratio (~0.10–0.14).  As the head tilts forward/down,
-    the ratio grows beyond the threshold.
-
-    Returns:
-        is_looking_down (bool)
-        ratio (float)  -- displayed on screen for tuning
-    """
-    try:
-        nose     = _lm_to_np(landmarks[NOSE_TIP_IDX],   w, h)
-        l_eye_c  = _eye_centre(landmarks, LEFT_EYE_IDX,  w, h)
-        r_eye_c  = _eye_centre(landmarks, RIGHT_EYE_IDX, w, h)
-        eye_mid  = (l_eye_c + r_eye_c) / 2.0
-
-        chin     = _lm_to_np(landmarks[CHIN_IDX],     w, h)
-        forehead = _lm_to_np(landmarks[FOREHEAD_IDX], w, h)
-        face_h   = euclidean(forehead, chin)
-
-        if face_h < 1:
-            return False, 0.0
-
-        ratio = (nose[1] - eye_mid[1]) / face_h
-        return ratio > threshold, round(ratio, 3)
-    except Exception:
-        return False, 0.0
 
 
 # ── HEAD TURN ─────────────────────────────────────────────────────────────────
@@ -304,10 +203,8 @@ class VideoFrameHandler:
     ----------------------------
     1. EAR          – eye closure duration
     2. MAR          – yawn detection
-    3. Iris gaze    – left / right / up / down iris offset
-    4. Looking down – head-pitch geometry
-    5. Head turn    – face-edge asymmetry
-    6. Face missing – no landmarks for N seconds
+    3. Head turn    – face-edge asymmetry
+    4. Face missing – no landmarks for N seconds
     """
 
     def __init__(self, model_path="face_landmarker.task"):
@@ -330,14 +227,8 @@ class VideoFrameHandler:
             "color":       (0, 255, 0),
             "play_alarm":  False,
         }
-        self.gaze_state = {
-            "off_start": None, "off_time": 0.0, "alert": False,
-        }
         self.yawn_state = {
             "start_time": now, "yawn_time": 0.0, "detected": False,
-        }
-        self.look_down_state = {
-            "start": None, "time": 0.0, "alert": False,
         }
         self.head_turn_state = {
             "start": None, "time": 0.0, "alert": False,
@@ -368,18 +259,6 @@ class VideoFrameHandler:
             self.drowsy_state["color"]       = (0, 255, 0)
             self.drowsy_state["play_alarm"]  = False
 
-    def _update_gaze(self, looking, t):
-        now = time.time()
-        if not looking:
-            if self.gaze_state["off_start"] is None:
-                self.gaze_state["off_start"] = now
-            self.gaze_state["off_time"] = now - self.gaze_state["off_start"]
-            self.gaze_state["alert"]    = self.gaze_state["off_time"] >= t["GAZE_OFF_LIMIT"]
-        else:
-            self.gaze_state["off_start"] = None
-            self.gaze_state["off_time"]  = 0.0
-            self.gaze_state["alert"]     = False
-
     def _update_yawn(self, mar, t):
         if mar > t["MAR_THRESH"]:
             end = time.perf_counter()
@@ -391,23 +270,6 @@ class VideoFrameHandler:
             self.yawn_state["start_time"] = time.perf_counter()
             self.yawn_state["yawn_time"]  = 0.0
             self.yawn_state["detected"]   = False
-
-    def _update_look_down(self, is_down, t):
-        """
-        Start timer on first down-frame; reset the instant head rises.
-        Alert fires after LOOK_DOWN_WAIT_TIME seconds of continuous down posture.
-        """
-        now = time.time()
-        if is_down:
-            if self.look_down_state["start"] is None:
-                self.look_down_state["start"] = now
-            self.look_down_state["time"]  = now - self.look_down_state["start"]
-            self.look_down_state["alert"] = (
-                self.look_down_state["time"] >= t["LOOK_DOWN_WAIT_TIME"])
-        else:
-            self.look_down_state["start"] = None
-            self.look_down_state["time"]  = 0.0
-            self.look_down_state["alert"] = False
 
     def _update_head_turn(self, is_turned, t):
         """
@@ -492,8 +354,7 @@ class VideoFrameHandler:
         cv2.putText(frame, text, pos,
                     cv2.FONT_HERSHEY_SIMPLEX, scale, color, thick, cv2.LINE_AA)
 
-    def _draw_overlay(self, frame, ear, mar, gaze_dbg,
-                      look_down_ratio, head_asym, t):
+    def _draw_overlay(self, frame, ear, mar, head_asym, t):
         fh, fw = frame.shape[:2]
         ec = self.drowsy_state["color"]
 
@@ -503,30 +364,19 @@ class VideoFrameHandler:
         # ── Raw metrics (top-left) ────────────────────────────────────────────
         self._put(frame, f"EAR: {ear:.2f}",  (10, 28),  ec)
         self._put(frame, f"MAR: {mar:.2f}",  (10, 52),  (200, 200, 0))
-        self._put(frame,
-                  f"GazeH: {gaze_dbg['gaze_h']:+.2f}  GazeV: {gaze_dbg['gaze_v']:+.2f}",
-                  (10, 74), (180, 180, 180), scale=0.50)
-        self._put(frame, f"LookDown ratio: {look_down_ratio:+.3f}",
-                  (10, 94),  (180, 180, 180), scale=0.50)
         self._put(frame, f"HeadTurn asym:  {head_asym:.3f}",
-                  (10, 114), (180, 180, 180), scale=0.50)
+                  (10, 74), (180, 180, 180), scale=0.50)
 
         # ── Timers ────────────────────────────────────────────────────────────
         self._put(frame,
                   f"Drowsy:        {self.drowsy_state['DROWSY_TIME']:.1f}s",
-                  (10, 142), ec)
-        self._put(frame,
-                  f"Gaze Away:     {self.gaze_state['off_time']:.1f}s",
-                  (10, 166), alert_col(self.gaze_state["alert"]))
-        self._put(frame,
-                  f"Looking Down:  {self.look_down_state['time']:.1f}s",
-                  (10, 190), alert_col(self.look_down_state["alert"]))
+                  (10, 100), ec)
         self._put(frame,
                   f"Head Turn:     {self.head_turn_state['time']:.1f}s",
-                  (10, 214), alert_col(self.head_turn_state["alert"]))
+                  (10, 124), alert_col(self.head_turn_state["alert"]))
         self._put(frame,
                   f"Face Missing:  {self.face_missing_state['time']:.1f}s",
-                  (10, 238), alert_col(self.face_missing_state["alert"]))
+                  (10, 148), alert_col(self.face_missing_state["alert"]))
 
         # ── Active condition labels (bottom, stacked upward) ──────────────────
         y = fh - 120
@@ -538,14 +388,8 @@ class VideoFrameHandler:
         if self.yawn_state["detected"]:
             self._put(frame, "YAWNING DETECTED", (10, y), (0, 100, 255), scale=0.70, thick=2)
             y += lh
-        if self.look_down_state["alert"]:
-            self._put(frame, "LOOKING DOWN - DISTRACTED", (10, y), (0, 70, 255), scale=0.70, thick=2)
-            y += lh
         if self.head_turn_state["alert"]:
             self._put(frame, "HEAD TURNED - NOT FOCUSED", (10, y), (0, 70, 255), scale=0.70, thick=2)
-            y += lh
-        if self.gaze_state["alert"]:
-            self._put(frame, "GAZE OFF SCREEN", (10, y), (0, 70, 255), scale=0.70, thick=2)
             y += lh
         if self.face_missing_state["alert"]:
             self._put(frame, "USER ABSENT", (10, y), (0, 0, 200), scale=0.70, thick=2)
@@ -571,9 +415,7 @@ class VideoFrameHandler:
 
     def _any_alert(self):
         return (self.drowsy_state["play_alarm"]  or
-                self.gaze_state["alert"]         or
                 self.yawn_state["detected"]      or
-                self.look_down_state["alert"]    or
                 self.head_turn_state["alert"]    or
                 self.face_missing_state["alert"])
 
@@ -586,10 +428,7 @@ class VideoFrameHandler:
         self.drowsy_state["play_alarm"]  = False
         self.drowsy_state["color"]       = (0, 255, 0)
 
-        self.gaze_state.update(off_start=None, off_time=0.0, alert=False)
         self.yawn_state.update(yawn_time=0.0, detected=False)
-
-        self.look_down_state.update(start=None, time=0.0, alert=False)
         self.head_turn_state.update(start=None, time=0.0, alert=False)
 
         self._update_face_missing(False, t)  # tick the missing timer
@@ -615,8 +454,7 @@ class VideoFrameHandler:
         result = self.detector.detect(mp_img)
 
         # Defaults for overlay (shown even when no face present)
-        ear = mar = look_down_ratio = head_asym = 0.0
-        gaze_dbg = {"gaze_h": 0.0, "gaze_v": 0.0}
+        ear = mar = head_asym = 0.0
 
         if result.face_landmarks:
             lms = result.face_landmarks[0]
@@ -629,26 +467,12 @@ class VideoFrameHandler:
             r_ear, r_pts = compute_ear(lms, RIGHT_EYE_IDX, fw, fh)
             ear = (l_ear + r_ear) / 2.0
             self._update_drowsy(ear, t)
-            for pts in [l_pts, r_pts]:
-                if pts:
-                    for pt in pts:
-                        cv2.circle(frame, pt, 2, self.drowsy_state["color"], -1)
 
             # ── 2. Yawning (MAR) ──────────────────────────────────────────────
             mar = compute_mar(lms, MOUTH_IDX, fw, fh)
             self._update_yawn(mar, t)
 
-            # ── 3. Iris gaze ──────────────────────────────────────────────────
-            looking, gaze_dbg = compute_gaze(
-                lms, fw, fh, t["GAZE_H_THRESH"], t["GAZE_V_THRESH"])
-            self._update_gaze(looking, t)
-
-            # ── 4. Looking down ───────────────────────────────────────────────
-            is_down, look_down_ratio = detect_looking_down(
-                lms, fw, fh, t["LOOK_DOWN_THRESH"])
-            self._update_look_down(is_down, t)
-
-            # ── 5. Head turn ──────────────────────────────────────────────────
+            # ── 3. Head turn ──────────────────────────────────────────────────
             is_turned, head_asym = detect_head_turn(
                 lms, fw, fh, t["HEAD_TURN_THRESH"])
             self._update_head_turn(is_turned, t)
@@ -661,7 +485,6 @@ class VideoFrameHandler:
         self._maybe_alert(self._any_alert(), t)
 
         # ── Visual overlay ────────────────────────────────────────────────────
-        self._draw_overlay(frame, ear, mar, gaze_dbg,
-                           look_down_ratio, head_asym, t)
+        self._draw_overlay(frame, ear, mar, head_asym, t)
 
         return frame, self._any_alert()

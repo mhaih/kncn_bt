@@ -21,8 +21,8 @@ def main():
     print("Press  q  to quit.\n")
     print("Detects:")
     print("  • Eye closure  (EAR < {EAR_THRESH} for {EAR_WAIT_TIME}s)".format(**thresholds))
-    print("  • Gaze away    (> {GAZE_OFF_LIMIT}s off-screen)".format(**thresholds))
     print("  • Yawning      (MAR > {MAR_THRESH} for {MAR_WAIT_TIME}s)".format(**thresholds))
+    print("  • Head turn    (asym > {HEAD_TURN_THRESH} for {HEAD_TURN_WAIT_TIME}s)".format(**thresholds))
     print("  • Audio alert  (Lv1 cooldown {ALARM_COOLDOWN_LVL1}s, "
           "Lv2 {ALARM_COOLDOWN_LVL2}s, Lv3 {ALARM_COOLDOWN_LVL3}s)\n".format(**thresholds))
 
